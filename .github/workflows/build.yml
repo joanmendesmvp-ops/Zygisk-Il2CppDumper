@@ -1,27 +1,124 @@
-name: Build
+name: Build Zygisk-Il2CppDumper
+
 on:
   workflow_dispatch:
-      inputs:
-        package_name:
-          description: "Package name of the game:"
-          required: true
+    inputs:
+      package_name:
+        description: "Package name do jogo (ex: com.dts.freefireth)"
+        required: true
+        default: "com.dts.freefireth"
+      
+      arch:
+        description: "Arquitetura (arm64-v8a ou armeabi-v7a)"
+        required: true
+        default: "arm64-v8a"
+        type: choice
+        options:
+          - arm64-v8a
+          - armeabi-v7a
+      
+      unity_version:
+        description: "Versão do Unity (ex: 2022.3.20f1)"
+        required: true
+        default: "2022.3.20f1"
+      
+      bypass_garena:
+        description: "Ativar bypass GarenaShield (Free Fire)"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      
+      dump_path:
+        description: "Caminho de saída do dump.cs"
+        required: false
+        default: "/data/data/${{ github.event.inputs.package_name }}/files/"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - uses: actions/setup-java@v3
-      with:
-        distribution: temurin
-        java-version: 11
-        cache: gradle
-    - run: |
-        chmod +x ./gradlew
-        sed -i 's/moduleDescription = "/moduleDescription = "(${{ github.event.inputs.package_name }}) /g' module.gradle
-        sed -i "s/com.game.packagename/${{ github.event.inputs.package_name }}/g" module/src/main/cpp/game.h
-        ./gradlew :module:assembleRelease
-    - uses: actions/upload-artifact@v4
-      with:
-        name: zygisk-il2cppdumper
-        path: out/magisk_module_release/
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 11
+          cache: gradle
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b
+
+      - name: Configurar module.gradle
+        run: |
+          sed -i 's/moduleDescription = ".*/moduleDescription = "Zygisk-Il2CppDumper for ${{ github.event.inputs.package_name }} (${{ github.event.inputs.arch }})"/' module.gradle
+          echo "Configuração do module.gradle aplicada"
+
+      - name: Configurar game.h (Package + Unity + Bypass + Path)
+        run: |
+          cat > module/src/main/cpp/game.h << 'EOF'
+          #ifndef GAME_H
+          #define GAME_H
+
+          #define GamePackageName "${{ github.event.inputs.package_name }}"
+          #define UnityVersion "${{ github.event.inputs.unity_version }}"
+          #define DumpPath "${{ github.event.inputs.dump_path }}"
+
+          #ifdef __cplusplus
+          extern "C" {
+          #endif
+
+          #if defined(__aarch64__)
+          #define TARGET_ARCH "arm64-v8a"
+          #elif defined(__arm__)
+          #define TARGET_ARCH "armeabi-v7a"
+          #endif
+
+          // Bypass GarenaShield (Free Fire OB51+)
+          #if "${{ github.event.inputs.bypass_garena }}" == "true"
+          #define BYPASS_GARENA_SHIELD 1
+          #define DECRYPT_METADATA_AES 1
+          #define HOOK_IL2CPP_INIT_EARLY 1
+          #endif
+
+          void start_dump();
+
+          #ifdef __cplusplus
+          }
+          #endif
+
+          #endif // GAME_H
+          EOF
+          echo "game.h configurado com sucesso para ${{ github.event.inputs.package_name }}"
+
+      - name: Compilar módulo
+        run: |
+          chmod +x ./gradlew
+          echo "Iniciando build para ${{ github.event.inputs.arch }}..."
+          ./gradlew :module:assembleRelease \
+            -PtargetArch=${{ github.event.inputs.arch }} \
+            -Pandroid.ndkVersion=r26b
+
+      - name: Upload módulo Magisk
+        uses: actions/upload-artifact@v4
+        with:
+          name: zygisk-il2cppdumper-${{ github.event.inputs.package_name }}-${{ github.event.inputs.arch }}
+          path: |
+            out/magisk_module_release/
+            module/src/main/cpp/game.h
+          overwrite: true
+
+      - name: Informações finais
+        run: |
+          echo "Build concluído com sucesso!"
+          echo "Package: ${{ github.event.inputs.package_name }}"
+          echo "Arquitetura: ${{ github.event.inputs.arch }}"
+          echo "Unity: ${{ github.event.inputs.unity_version }}"
+          echo "Bypass Garena: ${{ github.event.inputs.bypass_garena }}"
+          echo "Dump path: ${{ github.event.inputs.dump_path }}"
