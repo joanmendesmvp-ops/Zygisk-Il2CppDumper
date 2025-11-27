@@ -104,8 +104,28 @@ jobs:
       - name: Build com Gradle
         run: |
           chmod +x gradlew
-          ./gradlew :module:assembleRelease
+          ./gradlew :module:assembleRelease :module:zipRelease
 
+      # NOVO PASSO: DIAGNÓSTICO FORENSE
+      - name: DEBUG - Localizar Arquivos Gerados
+        run: |
+          echo "::group::🔎 RASTREIO DE ARQUIVOS"
+          echo "Procurando por QUALQUER arquivo .zip no sistema..."
+          find . -type f -name "*.zip"
+          
+          echo "---------------------------------------------------"
+          echo "Conteúdo da pasta module/build/outputs (se existir):"
+          ls -R module/build/outputs || echo "Pasta outputs não encontrada."
+          echo "::endgroup::"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zygisk-Il2CppDumper-OUTPUT
+          # MUDANÇA TÁTICA: Busca recursiva global.
+          # Se o zip existir em QUALQUER lugar, nós o pegaremos.
+          path: "**/*.zip" 
+          if-no-files-found: warn
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
