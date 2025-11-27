@@ -109,5 +109,8 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
+          # Nome do arquivo final no GitHub
           name: Zygisk-Il2CppDumper-${{ inputs.package_name }}-${{ inputs.arch }}
-          path: module/build/outputs/apk/release/*.apk
+          # CORREÇÃO: Procurar por QUALQUER .zip dentro da pasta de build do módulo
+          path: module/build/**/*.zip
+          if-no-files-found: error
