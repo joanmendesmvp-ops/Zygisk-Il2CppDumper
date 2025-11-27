@@ -34,7 +34,7 @@ on:
       dump_path:
         description: "Caminho de saída do dump.cs (Deixe vazio para automático)"
         required: false
-        default: ""  # CORREÇÃO CRÍTICA: Valor estático vazio. A lógica será tratada no shell.
+        default: "" # Lógica tratada no script abaixo
 
 jobs:
   build:
@@ -55,41 +55,59 @@ jobs:
         with:
           ndk-version: r26b
 
-      # NOVA CAMADA LÓGICA: Resolvemos os caminhos aqui, onde o shell script tem poder total.
       - name: Configurar Variáveis de Ambiente e Caminhos
         id: setup_paths
         run: |
           echo "::group::Inicializando Lógica de Caminhos"
           
-          # Captura inputs brutos
+          # Captura inputs
           PKG="${{ inputs.package_name }}"
           USER_PATH="${{ inputs.dump_path }}"
           
-          # Lógica de decisão: Se o usuário não definiu path, geramos baseado no package
+          # Define o caminho final
           if [ -z "$USER_PATH" ]; then
             FINAL_PATH="/data/data/${PKG}/files/"
-            echo "Path não fornecido. Gerado automaticamente: $FINAL_PATH"
+            echo "Path automático gerado: $FINAL_PATH"
           else
             FINAL_PATH="$USER_PATH"
-            echo "Path manual detectado: $FINAL_PATH"
+            echo "Path manual definido: $FINAL_PATH"
           fi
           
-          # Exporta para o ENV do GitHub para ser visível em steps subsequentes
+          # Exporta para variável global
           echo "DUMP_PATH=$FINAL_PATH" >> $GITHUB_ENV
           
           echo "::endgroup::"
 
       - name: Configurar module.gradle
         run: |
-          # Injeção direta de metadados no build script
           sed -i 's/moduleDescription = ".*/moduleDescription = "Zygisk-Il2CppDumper for ${{ inputs.package_name }} (${{ inputs.arch }})"/' module.gradle
-          echo "Metadados do module.gradle atualizados com sucesso."
+          echo "Descrição do módulo atualizada."
 
-      - name: Configurar game.h (C++ Header Generation)
+      - name: Configurar game.h (Header C++)
         run: |
-          # Geração dinâmica do header file usando as variáveis processadas
-          # A variável $DUMP_PATH vem do step de configuração anterior
-          
+          # Gera o arquivo de configuração C++ com as variáveis injetadas
           cat > module/src/main/cpp/game.h << EOF
           #ifndef GAME_H
           #define GAME_H
+
+          #define GamePackageName "${{ inputs.package_name }}"
+          #define GameUnityVersion "${{ inputs.unity_version }}"
+          #define DumpPath "$DUMP_PATH"
+          #define BypassGarena ${{ inputs.bypass_garena }}
+
+          #endif // GAME_H
+          EOF
+          
+          echo "Conteúdo gerado para game.h:"
+          cat module/src/main/cpp/game.h
+
+      - name: Build com Gradle
+        run: |
+          chmod +x gradlew
+          ./gradlew :module:assembleRelease
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Zygisk-Il2CppDumper-${{ inputs.package_name }}-${{ inputs.arch }}
+          path: module/build/outputs/apk/release/*.apk
